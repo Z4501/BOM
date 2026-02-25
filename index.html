@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BOM Lookup</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 6px 0; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-top: 12px; }
+    label { display:block; font-size:12px; opacity:.8; margin-bottom:6px; }
+    input, button { padding:10px; font-size:14px; }
+    input { min-width: 280px; }
+    button { cursor:pointer; }
+    table { width:100%; border-collapse:collapse; margin-top:16px; }
+    th, td { border:1px solid #ddd; padding:8px; text-align:left; vertical-align: top; }
+    th { background:#f6f6f6; }
+    .muted { opacity:.75; font-size:13px; margin-top:8px; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; opacity:.85; }
+    .controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>BOM Lookup</h1>
+  <div class="muted">
+    Type a <span class="pill">PARENT_NO</span> and get all components + quantities.
+  </div>
+
+  <div class="row">
+    <div>
+      <label for="parent">PARENT_NO</label>
+      <input id="parent" list="parentList" placeholder="e.g. 026753F" autocomplete="off" />
+      <datalist id="parentList"></datalist>
+    </div>
+    <button id="btn">Search</button>
+  </div>
+
+  <div class="controls">
+    <label style="display:flex; gap:8px; align-items:center; font-size:13px; opacity:.9;">
+      <input type="checkbox" id="showMore" checked />
+      Show PG / DESCRIPTION / ITEM_TYPE
+    </label>
+  </div>
+
+  <div class="muted" id="status">Loading data…</div>
+
+  <table id="tbl" style="display:none">
+    <thead>
+      <tr>
+        <th>COMPONENT_NO</th>
+        <th>QTY_PER</th>
+        <th class="more">PG</th>
+        <th class="more">DESCRIPTION</th>
+        <th class="more">ITEM_TYPE</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+let BOM = null;
+let parents = [];
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, m => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[m]));
+}
+
+async function loadData() {
+  const [bomRes, parentRes] = await Promise.all([
+    fetch("./bom_index.json", { cache: "no-store" }),
+    fetch("./parents.json", { cache: "no-store" })
+  ]);
+  if (!bomRes.ok) throw new Error("Could not load bom_index.json");
+  if (!parentRes.ok) throw new Error("Could not load parents.json");
+
+  BOM = await bomRes.json();
+  parents = await parentRes.json();
+
+  // fill datalist
+  const dl = document.getElementById("parentList");
+  dl.innerHTML = parents.map(p => `<option value="${escapeHtml(p)}"></option>`).join("");
+
+  document.getElementById("status").textContent =
+    `Loaded ${parents.length.toLocaleString()} parents.`;
+}
+
+function setMoreVisible(show) {
+  document.querySelectorAll(".more").forEach(el => {
+    el.style.display = show ? "" : "none";
+  });
+}
+
+function render(parent) {
+  const p = parent.trim().toUpperCase();
+  const out = (BOM && BOM[p]) ? BOM[p] : [];
+
+  const tbl = document.getElementById("tbl");
+  const body = tbl.querySelector("tbody");
+  body.innerHTML = "";
+
+  if (!p) {
+    tbl.style.display = "none";
+    document.getElementById("status").textContent = "Enter a PARENT_NO.";
+    return;
+  }
+
+  if (!out.length) {
+    tbl.style.display = "none";
+    document.getElementById("status").textContent = `No matches for ${p}.`;
+    return;
+  }
+
+  for (const r of out) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(r.COMPONENT_NO)}</td>
+      <td>${escapeHtml(r.QTY_PER)}</td>
+      <td class="more">${escapeHtml(r.PG)}</td>
+      <td class="more">${escapeHtml(r.DESCRIPTION)}</td>
+      <td class="more">${escapeHtml(r.ITEM_TYPE)}</td>
+    `;
+    body.appendChild(tr);
+  }
+
+  tbl.style.display = "";
+  document.getElementById("status").textContent =
+    `${out.length} item(s) found for ${p}.`;
+}
+
+document.getElementById("btn").addEventListener("click", () => {
+  render(document.getElementById("parent").value);
+});
+document.getElementById("parent").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") render(e.target.value);
+});
+document.getElementById("showMore").addEventListener("change", (e) => {
+  setMoreVisible(e.target.checked);
+});
+
+loadData()
+  .then(() => setMoreVisible(document.getElementById("showMore").checked))
+  .catch(err => {
+    document.getElementById("status").textContent =
+      "ERROR: " + err.message + " (make sure files are in the repo root)";
+    console.error(err);
+  });
+</script>
+</body>
+</html>
